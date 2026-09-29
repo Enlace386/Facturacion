@@ -1,14 +1,24 @@
-// 1. Configuración de Firebase (Tus credenciales reales)
+// 1. Configuración real de tu proyecto Firebase
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_PROYECTO.firebaseapp.com",
-  projectId: "TU_PROYECTO",
-  storageBucket: "TU_PROYECTO.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
+  apiKey: "AIzaSyBlPqHe_RhlesKTNWRmzHaBdlq_8nMQjVI",
+  authDomain: "facturacion-5a21f.firebaseapp.com",
+  projectId: "facturacion-5a21f",
+  storageBucket: "facturacion-5a21f.firebasestorage.app",
+  messagingSenderId: "993707105032",
+  appId: "1:993707105032:web:620a0a852b7399e7bd6abd",
+  measurementId: "G-CCM8GCP49Q"
 };
 
-firebase.initializeApp(firebaseConfig);
+// Inicialización de Firebase
+const app = firebase.initializeApp(firebaseConfig);
+
+// Inicialización de Firebase Analytics
+let analytics;
+if (typeof firebase.analytics === 'function') {
+  analytics = firebase.analytics();
+}
+
+// Servicios de Firebase
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
