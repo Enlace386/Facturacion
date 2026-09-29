@@ -1,4 +1,4 @@
-// 1. Configuración real de tu proyecto Firebase
+// 1. Configuración de Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBlPqHe_RhlesKTNWRmzHaBdlq_8nMQjVI",
   authDomain: "facturacion-5a21f.firebaseapp.com",
@@ -9,22 +9,21 @@ const firebaseConfig = {
   measurementId: "G-CCM8GCP49Q"
 };
 
-// Inicialización de Firebase
+// Inicialización
 const app = firebase.initializeApp(firebaseConfig);
 
-// Inicialización de Firebase Analytics
 let analytics;
 if (typeof firebase.analytics === 'function') {
   analytics = firebase.analytics();
 }
 
-// Servicios de Firebase
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
 
 let modoRegistro = false;
 let facturasGlobales = [];
+let facturaEditandoId = null;
 
 // Escuchador del Estado de la Sesión
 auth.onAuthStateChanged((user) => {
@@ -32,7 +31,6 @@ auth.onAuthStateChanged((user) => {
   const appContainer = document.getElementById('appContainer');
 
   if (user) {
-    // Usuario Autenticado -> Mostrar Panel
     authContainer.classList.add('hidden');
     appContainer.classList.remove('hidden');
     document.getElementById('userInfo').innerText = user.email;
@@ -46,13 +44,12 @@ auth.onAuthStateChanged((user) => {
     cargarDatosTrimestre();
 
   } else {
-    // Sin sesión -> Mostrar Login
     authContainer.classList.remove('hidden');
     appContainer.classList.add('hidden');
   }
 });
 
-// Lógica de Login / Registro
+// Autenticación
 function alternarModoAuth() {
   modoRegistro = !modoRegistro;
   const btnSubmit = document.getElementById('btnAuthSubmit');
@@ -114,7 +111,7 @@ function actualizarAnioNav() {
   document.getElementById('labelAnioNav').innerText = anio;
 }
 
-// 2. Cargar datos desde Firestore
+// Cargar datos desde Firestore
 async function cargarDatosTrimestre() {
   const user = auth.currentUser;
   if (!user) return;
@@ -136,7 +133,7 @@ async function cargarDatosTrimestre() {
   }
 }
 
-// 3. Dibujar tablas y métricas
+// Renderizado de Tablas y Cálculo de Totales
 function renderizarTablasYTotales() {
   const tablaEmitidas = document.getElementById('tablaEmitidas');
   const tablaRecibidas = document.getElementById('tablaRecibidas');
@@ -159,6 +156,10 @@ function renderizarTablasYTotales() {
           <td class="p-2">${f.base.toFixed(2)} €</td>
           <td class="p-2">${f.cuotaIva.toFixed(2)} €</td>
           <td class="p-2 font-bold">${f.total.toFixed(2)} €</td>
+          <td class="p-2 text-center space-x-2">
+            <button onclick="abrirModalFactura('${f.tipo}', '${f.id}')" class="text-indigo-600 hover:text-indigo-800 font-bold" title="Editar">✏️</button>
+            <button onclick="eliminarFactura('${f.id}')" class="text-red-600 hover:text-red-800 font-bold" title="Eliminar">🗑️</button>
+          </td>
         </tr>
       `;
     } else {
@@ -176,6 +177,10 @@ function renderizarTablasYTotales() {
           <td class="p-2">${f.base.toFixed(2)} €</td>
           <td class="p-2">${f.cuotaIva.toFixed(2)} €</td>
           <td class="p-2">${adjuntoHtml}</td>
+          <td class="p-2 text-center space-x-2">
+            <button onclick="abrirModalFactura('${f.tipo}', '${f.id}')" class="text-indigo-600 hover:text-indigo-800 font-bold" title="Editar">✏️</button>
+            <button onclick="eliminarFactura('${f.id}')" class="text-red-600 hover:text-red-800 font-bold" title="Eliminar">🗑️</button>
+          </td>
         </tr>
       `;
     }
@@ -201,17 +206,40 @@ function renderizarTablasYTotales() {
   }
 }
 
-// 4. Formulario de Factura
-function abrirModalFactura(tipo) {
+// Modal de Crear / Editar
+function abrirModalFactura(tipo, id = null) {
+  const form = document.getElementById('formFactura');
+  form.reset();
+  
+  facturaEditandoId = id;
   document.getElementById('facturaTipo').value = tipo;
-  document.getElementById('modalTitle').innerText = tipo === 'emitida' ? 'Registrar Venta (Factura Emitida)' : 'Registrar Gasto (Factura Recibida)';
-  document.getElementById('formFactura').reset();
-  document.getElementById('facturaFecha').value = new Date().toISOString().split('T')[0];
+
+  if (id) {
+    const factura = facturasGlobales.find(f => f.id === id);
+    if (!factura) return;
+
+    document.getElementById('modalTitle').innerText = 'Editar Factura';
+    document.getElementById('facturaFecha').value = factura.fecha;
+    document.getElementById('facturaNumero').value = factura.numero;
+    document.getElementById('facturaTercero').value = factura.tercero;
+    document.getElementById('facturaNif').value = factura.nif;
+    document.getElementById('facturaBase').value = factura.base;
+    document.getElementById('facturaIvaPct').value = factura.ivaPct;
+    document.getElementById('facturaIrpfPct').value = factura.irpfPct;
+    document.getElementById('facturaTotal').value = factura.total.toFixed(2);
+  } else {
+    document.getElementById('modalTitle').innerText = tipo === 'emitida' 
+      ? 'Registrar Venta (Factura Emitida)' 
+      : 'Registrar Gasto (Factura Recibida)';
+    document.getElementById('facturaFecha').value = new Date().toISOString().split('T')[0];
+  }
+
   document.getElementById('modalFactura').classList.remove('hidden');
 }
 
 function cerrarModalFactura() {
   document.getElementById('modalFactura').classList.add('hidden');
+  facturaEditandoId = null;
 }
 
 function calcularTotalesModal() {
@@ -226,7 +254,7 @@ function calcularTotalesModal() {
   document.getElementById('facturaTotal').value = total.toFixed(2);
 }
 
-// 5. Guardado en Firestore
+// Guardar (Crear / Actualizar)
 async function guardarFactura(e) {
   e.preventDefault();
   const user = auth.currentUser;
@@ -256,16 +284,7 @@ async function guardarFactura(e) {
   if (mes >= 10) trimestre = '4T';
 
   try {
-    let adjuntoUrl = '';
-    const fileInput = document.getElementById('facturaAdjunto');
-    if (fileInput.files.length > 0) {
-      const file = fileInput.files[0];
-      const storageRef = storage.ref(`adjuntos/${user.uid}/${anio}/${Date.now()}_${file.name}`);
-      await storageRef.put(file);
-      adjuntoUrl = await storageRef.getDownloadURL();
-    }
-
-    await db.collection('facturas').add({
+    const datosFactura = {
       userId: user.uid,
       tipo,
       fecha,
@@ -280,9 +299,23 @@ async function guardarFactura(e) {
       irpfPct,
       cuotaIrpf,
       total,
-      adjuntoUrl,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    const fileInput = document.getElementById('facturaAdjunto');
+    if (fileInput.files.length > 0) {
+      const file = fileInput.files[0];
+      const storageRef = storage.ref(`adjuntos/${user.uid}/${anio}/${Date.now()}_${file.name}`);
+      await storageRef.put(file);
+      datosFactura.adjuntoUrl = await storageRef.getDownloadURL();
+    }
+
+    if (facturaEditandoId) {
+      await db.collection('facturas').doc(facturaEditandoId).update(datosFactura);
+    } else {
+      datosFactura.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection('facturas').add(datosFactura);
+    }
 
     document.getElementById('anioSelect').value = anio;
     document.getElementById('trimestreSelect').value = trimestre;
@@ -300,7 +333,20 @@ async function guardarFactura(e) {
   }
 }
 
-// 6. Exportar CSV
+// Eliminar Factura
+async function eliminarFactura(id) {
+  if (!confirm("¿Estás seguro de que deseas eliminar esta factura?")) return;
+
+  try {
+    await db.collection('facturas').doc(id).delete();
+    await cargarDatosTrimestre();
+  } catch (error) {
+    console.error("Error al eliminar la factura:", error);
+    alert("Error al eliminar: " + error.message);
+  }
+}
+
+// Exportar CSV
 function exportarExcelGestoria() {
   if (facturasGlobales.length === 0) {
     alert("No hay facturas registradas en el período seleccionado.");
