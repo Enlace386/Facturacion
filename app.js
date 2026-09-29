@@ -1,4 +1,4 @@
-// 1. Configuración de Firebase (Coloca aquí las credenciales de tu proyecto)
+// 1. Configuración de Firebase (Tus credenciales reales)
 const firebaseConfig = {
   apiKey: "TU_API_KEY",
   authDomain: "TU_PROYECTO.firebaseapp.com",
@@ -8,39 +8,103 @@ const firebaseConfig = {
   appId: "1:123456789:web:abcdef"
 };
 
-// Inicialización de Firebase
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
 
+let modoRegistro = false;
 let facturasGlobales = [];
 
-// Autenticación Anónima/Persistente
+// Escuchador del Estado de la Sesión
 auth.onAuthStateChanged((user) => {
+  const authContainer = document.getElementById('authContainer');
+  const appContainer = document.getElementById('appContainer');
+
   if (user) {
-    document.getElementById('userInfo').innerText = `ID Usuario: ${user.uid.substring(0, 6)}...`;
-    
-    // Asignar por defecto el año actual al selector
+    // Usuario Autenticado -> Mostrar Panel
+    authContainer.classList.add('hidden');
+    appContainer.classList.remove('hidden');
+    document.getElementById('userInfo').innerText = user.email;
+
     const anioActual = new Date().getFullYear().toString();
     const selectAnio = document.getElementById('anioSelect');
     if (selectAnio.querySelector(`option[value="${anioActual}"]`)) {
       selectAnio.value = anioActual;
     }
     actualizarAnioNav();
-    
     cargarDatosTrimestre();
+
   } else {
-    auth.signInAnonymously().catch(console.error);
+    // Sin sesión -> Mostrar Login
+    authContainer.classList.remove('hidden');
+    appContainer.classList.add('hidden');
   }
 });
+
+// Lógica de Login / Registro
+function alternarModoAuth() {
+  modoRegistro = !modoRegistro;
+  const btnSubmit = document.getElementById('btnAuthSubmit');
+  const btnToggle = document.getElementById('btnAuthToggle');
+  const toggleText = document.getElementById('authToggleText');
+  const errorEl = document.getElementById('authError');
+
+  errorEl.classList.add('hidden');
+
+  if (modoRegistro) {
+    btnSubmit.innerText = "Crear Cuenta";
+    toggleText.innerText = "¿Ya tienes una cuenta?";
+    btnToggle.innerText = "Iniciar Sesión";
+  } else {
+    btnSubmit.innerText = "Iniciar Sesión";
+    toggleText.innerText = "¿No tienes cuenta de usuario?";
+    btnToggle.innerText = "Registrarse";
+  }
+}
+
+async function procesarAuth(e) {
+  e.preventDefault();
+  const email = document.getElementById('authEmail').value;
+  const password = document.getElementById('authPassword').value;
+  const errorEl = document.getElementById('authError');
+  const btnSubmit = document.getElementById('btnAuthSubmit');
+
+  errorEl.classList.add('hidden');
+  btnSubmit.disabled = true;
+
+  try {
+    if (modoRegistro) {
+      await auth.createUserWithEmailAndPassword(email, password);
+    } else {
+      await auth.signInWithEmailAndPassword(email, password);
+    }
+  } catch (error) {
+    errorEl.classList.remove('hidden');
+    if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+      errorEl.innerText = "Correo o contraseña incorrectos.";
+    } else if (error.code === 'auth/email-already-in-use') {
+      errorEl.innerText = "El correo ya está registrado.";
+    } else if (error.code === 'auth/weak-password') {
+      errorEl.innerText = "La contraseña debe tener al menos 6 caracteres.";
+    } else {
+      errorEl.innerText = error.message;
+    }
+  } finally {
+    btnSubmit.disabled = false;
+  }
+}
+
+function cerrarSesion() {
+  auth.signOut();
+}
 
 function actualizarAnioNav() {
   const anio = document.getElementById('anioSelect').value;
   document.getElementById('labelAnioNav').innerText = anio;
 }
 
-// 2. Cargar datos del Año y Trimestre seleccionados
+// 2. Cargar datos desde Firestore
 async function cargarDatosTrimestre() {
   const user = auth.currentUser;
   if (!user) return;
@@ -49,7 +113,6 @@ async function cargarDatosTrimestre() {
   const trimestre = document.getElementById('trimestreSelect').value;
   
   try {
-    // Consulta filtrando por Usuario, Año y Trimestre
     const snapshot = await db.collection('facturas')
       .where('userId', '==', user.uid)
       .where('anio', '==', anio)
@@ -59,11 +122,11 @@ async function cargarDatosTrimestre() {
     facturasGlobales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     renderizarTablasYTotales();
   } catch (error) {
-    console.error("Error al obtener facturas:", error);
+    console.error("Error al cargar facturas:", error);
   }
 }
 
-// 3. Renderizar acumulados e interfaz
+// 3. Dibujar tablas y métricas
 function renderizarTablasYTotales() {
   const tablaEmitidas = document.getElementById('tablaEmitidas');
   const tablaRecibidas = document.getElementById('tablaRecibidas');
@@ -108,14 +171,12 @@ function renderizarTablasYTotales() {
     }
   });
 
-  // Actualizar indicadores
   document.getElementById('totalVentasBase').innerText = `${vBase.toFixed(2)} €`;
   document.getElementById('totalVentasIva').innerText = `${vIva.toFixed(2)} €`;
   document.getElementById('totalGastosBase').innerText = `${gBase.toFixed(2)} €`;
   document.getElementById('totalGastosIva').innerText = `${gIva.toFixed(2)} €`;
   document.getElementById('totalIrpf').innerText = `${totalIrpf.toFixed(2)} €`;
 
-  // Cálculo Modelo 303 (IVA Repercutido - IVA Soportado)
   const res303 = vIva - gIva;
   const res303El = document.getElementById('resultado303');
   res303El.innerText = `${res303.toFixed(2)} €`;
@@ -130,7 +191,7 @@ function renderizarTablasYTotales() {
   }
 }
 
-// 4. Lógica del Formulario y Totales
+// 4. Formulario de Factura
 function abrirModalFactura(tipo) {
   document.getElementById('facturaTipo').value = tipo;
   document.getElementById('modalTitle').innerText = tipo === 'emitida' ? 'Registrar Venta (Factura Emitida)' : 'Registrar Gasto (Factura Recibida)';
@@ -155,7 +216,7 @@ function calcularTotalesModal() {
   document.getElementById('facturaTotal').value = total.toFixed(2);
 }
 
-// 5. Guardado automático en Firestore y asignación de Año/Trimestre
+// 5. Guardado en Firestore
 async function guardarFactura(e) {
   e.preventDefault();
   const user = auth.currentUser;
@@ -175,7 +236,6 @@ async function guardarFactura(e) {
   const cuotaIrpf = base * (irpfPct / 100);
   const total = base + cuotaIva - cuotaIrpf;
 
-  // Extracción automática de Año y Trimestre según la fecha de la factura
   const fechaObj = new Date(fecha);
   const anio = fechaObj.getFullYear().toString();
   const mes = fechaObj.getMonth() + 1;
@@ -186,7 +246,6 @@ async function guardarFactura(e) {
   if (mes >= 10) trimestre = '4T';
 
   try {
-    // Subida de adjuntos (si hay)
     let adjuntoUrl = '';
     const fileInput = document.getElementById('facturaAdjunto');
     if (fileInput.files.length > 0) {
@@ -196,13 +255,12 @@ async function guardarFactura(e) {
       adjuntoUrl = await storageRef.getDownloadURL();
     }
 
-    // Guardar en Firestore con la asignación correcta
     await db.collection('facturas').add({
       userId: user.uid,
       tipo,
       fecha,
-      anio,        // <--- Ej: "2026", "2027"
-      trimestre,   // <--- Ej: "1T", "2T"
+      anio,
+      trimestre,
       numero: document.getElementById('facturaNumero').value,
       tercero: document.getElementById('facturaTercero').value,
       nif: document.getElementById('facturaNif').value,
@@ -216,7 +274,6 @@ async function guardarFactura(e) {
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    // Ajustar los desplegables de la interfaz al año/trimestre de la factura guardada
     document.getElementById('anioSelect').value = anio;
     document.getElementById('trimestreSelect').value = trimestre;
     actualizarAnioNav();
@@ -225,15 +282,15 @@ async function guardarFactura(e) {
     await cargarDatosTrimestre();
 
   } catch (error) {
-    console.error("Error al guardar la factura:", error);
-    alert("Hubo un error al guardar la factura.");
+    console.error("Error al guardar:", error);
+    alert("Error al guardar la factura: " + error.message);
   } finally {
     btnGuardar.disabled = false;
     btnGuardar.innerText = "Guardar";
   }
 }
 
-// 6. Exportador a CSV para enviar a la gestoría
+// 6. Exportar CSV
 function exportarExcelGestoria() {
   if (facturasGlobales.length === 0) {
     alert("No hay facturas registradas en el período seleccionado.");
