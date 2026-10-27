@@ -151,15 +151,21 @@ async function cargarDatosTrimestre() {
 // =====================================================
 
 function abrirBusquedaPaciente() {
-  document.getElementById('modalBusquedaPaciente')
-    .classList.remove('hidden');
+  const modal = document.getElementById('modalBusquedaPaciente');
 
-  document.getElementById('busquedaPacienteNombre').focus();
+  modal.classList.remove('hidden');
+
+  document.getElementById('mensajeBusquedaPaciente').textContent =
+    'Escribe el nombre o los apellidos y pulsa «Buscar facturas».';
+
+  setTimeout(
+    () => document.getElementById('busquedaPacienteNombre').focus(),
+    0
+  );
 }
 
 function cerrarBusquedaPaciente() {
-  document.getElementById('modalBusquedaPaciente')
-    .classList.add('hidden');
+  document.getElementById('modalBusquedaPaciente').classList.add('hidden');
 }
 
 function normalizarTextoBusqueda(valor) {
@@ -175,45 +181,46 @@ async function buscarFacturasPaciente(e) {
 
   const user = auth.currentUser;
 
-  if (!user) {
-    alert('Debes iniciar sesión para buscar facturas.');
-    return;
-  }
+  const terminoOriginal =
+    document.getElementById('busquedaPacienteNombre').value.trim();
 
-  const termino = normalizarTextoBusqueda(
-    document.getElementById('busquedaPacienteNombre').value
-  );
+  const termino = normalizarTextoBusqueda(terminoOriginal);
 
   const mensaje = document.getElementById('mensajeBusquedaPaciente');
   const boton = document.getElementById('btnBuscarPaciente');
   const contenedor = document.getElementById('resultadosBusquedaPaciente');
-  const tabla = document.getElementById('tablaBusquedaPaciente');
+
+  if (!user) {
+    mensaje.textContent =
+      'Debes iniciar sesión para consultar las facturas.';
+    return;
+  }
 
   if (!termino) {
-    mensaje.textContent = 'Escribe el nombre o los apellidos de la paciente.';
+    mensaje.textContent =
+      'Escribe el nombre o los apellidos de la paciente.';
     contenedor.classList.add('hidden');
     return;
   }
 
   boton.disabled = true;
   boton.textContent = 'Buscando...';
-  mensaje.textContent = 'Consultando el historial completo de facturas...';
+
+  mensaje.textContent = 'Consultando el historial de facturas...';
   contenedor.classList.add('hidden');
-  tabla.innerHTML = '';
 
   try {
-    // Consulta todas las facturas del usuario, sin limitar por año
-    // ni trimestre. No consulta las facturas de otros usuarios.
+    // Consulta las facturas del usuario conectado,
+    // sin limitar la búsqueda por año ni trimestre.
     const snapshot = await db.collection('facturas')
       .where('userId', '==', user.uid)
       .get();
 
-    const todasLasFacturas = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
-    facturasBusquedaGlobales = todasLasFacturas
+    facturasBusquedaGlobales = snapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
       .filter(f =>
         f.tipo === 'emitida' &&
         normalizarTextoBusqueda(f.tercero).includes(termino)
@@ -224,14 +231,12 @@ async function buscarFacturasPaciente(e) {
 
     renderizarResultadosBusquedaPaciente();
 
-    if (facturasBusquedaGlobales.length === 0) {
+    if (facturasBusquedaGlobales.length) {
       mensaje.textContent =
-        'No se han encontrado facturas emitidas para "' +
-        document.getElementById('busquedaPacienteNombre').value.trim() +
-        '". Prueba con otra parte del nombre o de los apellidos.';
+        `Se han encontrado ${facturasBusquedaGlobales.length} factura(s) para «${terminoOriginal}».`;
     } else {
       mensaje.textContent =
-        'Búsqueda completada. Se muestran las facturas emitidas encontradas en todo el historial.';
+        `No se han encontrado facturas emitidas para «${terminoOriginal}». Prueba con otra parte del nombre o de los apellidos.`;
     }
   } catch (error) {
     console.error('Error al buscar facturas por paciente:', error);
@@ -245,21 +250,25 @@ async function buscarFacturasPaciente(e) {
 }
 
 function renderizarResultadosBusquedaPaciente() {
-  const contenedor = document.getElementById('resultadosBusquedaPaciente');
+  const contenedor =
+    document.getElementById('resultadosBusquedaPaciente');
+
   const tabla = document.getElementById('tablaBusquedaPaciente');
+
   const terminoOriginal =
     document.getElementById('busquedaPacienteNombre').value.trim();
 
   tabla.innerHTML = '';
 
   document.getElementById('tituloResultadosPaciente').textContent =
-    'Facturas de: ' + terminoOriginal;
+    `Facturas de: ${terminoOriginal}`;
 
   document.getElementById('totalResultadosPaciente').textContent =
-    facturasBusquedaGlobales.length +
-    (facturasBusquedaGlobales.length === 1 ? ' factura' : ' facturas');
+    `${facturasBusquedaGlobales.length} ${
+      facturasBusquedaGlobales.length === 1 ? 'factura' : 'facturas'
+    }`;
 
-  if (facturasBusquedaGlobales.length === 0) {
+  if (!facturasBusquedaGlobales.length) {
     contenedor.classList.add('hidden');
     return;
   }
@@ -268,6 +277,7 @@ function renderizarResultadosBusquedaPaciente() {
 
   facturasBusquedaGlobales.forEach(f => {
     const fila = document.createElement('tr');
+
     fila.className = 'border-b text-xs hover:bg-violet-50';
 
     const valores = [
@@ -283,52 +293,48 @@ function renderizarResultadosBusquedaPaciente() {
       const celda = document.createElement('td');
 
       celda.className =
-        'p-3' + (indice === 5 ? ' font-bold whitespace-nowrap' : '');
+        `p-3${indice === 5 ? ' font-bold whitespace-nowrap' : ''}`;
 
       celda.textContent = valor;
       fila.appendChild(celda);
     });
 
     const acciones = document.createElement('td');
-    acciones.className = 'p-3 text-center whitespace-nowrap space-x-2';
+    acciones.className = 'p-3 text-center whitespace-nowrap';
 
     const editar = document.createElement('button');
+
     editar.type = 'button';
-    editar.className = 'text-indigo-600 hover:text-indigo-800 font-bold';
+    editar.className =
+      'text-indigo-600 hover:text-indigo-800 font-bold mr-3';
     editar.title = 'Editar factura';
-    editar.setAttribute(
-      'aria-label',
-      'Editar factura ' + (f.numero || '')
-    );
     editar.textContent = '✏️';
+
     editar.addEventListener('click', () => {
       abrirModalFactura('emitida', f.id);
     });
 
     const eliminar = document.createElement('button');
+
     eliminar.type = 'button';
-    eliminar.className = 'text-red-600 hover:text-red-800 font-bold';
+    eliminar.className =
+      'text-red-600 hover:text-red-800 font-bold';
     eliminar.title = 'Eliminar factura';
-    eliminar.setAttribute(
-      'aria-label',
-      'Eliminar factura ' + (f.numero || '')
-    );
     eliminar.textContent = '🗑️';
+
     eliminar.addEventListener('click', () => {
       eliminarFactura(f.id);
     });
 
     acciones.appendChild(editar);
     acciones.appendChild(eliminar);
+
     fila.appendChild(acciones);
     tabla.appendChild(fila);
   });
 }
 
-// =====================================================
-// TABLAS PRINCIPALES Y CÁLCULO DE TOTALES
-// =====================================================
-
+// Renderizado de tablas y cálculo de totales
 function renderizarTablasYTotales() {
   const tablaEmitidas = document.getElementById('tablaEmitidas');
   const tablaRecibidas = document.getElementById('tablaRecibidas');
@@ -441,10 +447,7 @@ function renderizarTablasYTotales() {
   }
 }
 
-// =====================================================
-// MODAL DE CREAR / EDITAR FACTURA
-// =====================================================
-
+// Modal de crear / editar
 function abrirModalFactura(tipo, id = null) {
   const form = document.getElementById('formFactura');
   form.reset();
@@ -504,10 +507,7 @@ function calcularTotalesModal() {
   document.getElementById('facturaTotal').value = total.toFixed(2);
 }
 
-// =====================================================
-// GUARDAR (CREAR / ACTUALIZAR)
-// =====================================================
-
+// Guardar (crear / actualizar)
 async function guardarFactura(e) {
   e.preventDefault();
 
@@ -515,6 +515,7 @@ async function guardarFactura(e) {
   if (!user) return;
 
   const btnGuardar = document.getElementById('btnGuardar');
+
   btnGuardar.disabled = true;
   btnGuardar.innerText = "Guardando...";
 
@@ -595,7 +596,8 @@ async function guardarFactura(e) {
     cerrarModalFactura();
     await cargarDatosTrimestre();
 
-    const modalBusqueda = document.getElementById('modalBusquedaPaciente');
+    const modalBusqueda =
+      document.getElementById('modalBusquedaPaciente');
 
     if (modalBusqueda && !modalBusqueda.classList.contains('hidden')) {
       await buscarFacturasPaciente();
@@ -609,10 +611,7 @@ async function guardarFactura(e) {
   }
 }
 
-// =====================================================
-// ELIMINAR FACTURA
-// =====================================================
-
+// Eliminar factura
 async function eliminarFactura(id) {
   if (!confirm("¿Estás seguro de que deseas eliminar esta factura?")) {
     return;
@@ -626,17 +625,16 @@ async function eliminarFactura(id) {
 
     await cargarDatosTrimestre();
 
-    const modalBusqueda = document.getElementById('modalBusquedaPaciente');
+    const modalBusqueda =
+      document.getElementById('modalBusquedaPaciente');
 
     if (modalBusqueda && !modalBusqueda.classList.contains('hidden')) {
       renderizarResultadosBusquedaPaciente();
 
-      const mensajeBusqueda =
-        document.getElementById('mensajeBusquedaPaciente');
-
-      mensajeBusqueda.textContent = facturasBusquedaGlobales.length
-        ? 'Historial actualizado tras eliminar la factura.'
-        : 'No quedan facturas para esta búsqueda.';
+      document.getElementById('mensajeBusquedaPaciente').textContent =
+        facturasBusquedaGlobales.length
+          ? 'Historial actualizado tras eliminar la factura.'
+          : 'No quedan facturas para esta búsqueda.';
     }
   } catch (error) {
     console.error("Error al eliminar la factura:", error);
@@ -644,10 +642,7 @@ async function eliminarFactura(id) {
   }
 }
 
-// =====================================================
-// EXPORTAR CSV
-// =====================================================
-
+// Exportar CSV
 function exportarExcelGestoria() {
   if (facturasGlobales.length === 0) {
     alert("No hay facturas registradas en el período seleccionado.");
