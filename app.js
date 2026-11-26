@@ -4,7 +4,6 @@ const firebaseConfig = {
   apiKey: "AIzaSyBlPqHe_RhlesKTNWRmzHaBdlq_8nMQjVI",
   authDomain: "facturacion-5a21f.firebaseapp.com",
   projectId: "facturacion-5a21f",
-  storageBucket: "facturacion-5a21f.firebasestorage.app",
   messagingSenderId: "993707105032",
   appId: "1:993707105032:web:620a0a852b7399e7bd6abd",
   measurementId: "G-CCM8GCP49Q"
@@ -20,18 +19,24 @@ if (typeof firebase.analytics === 'function') {
 
 const auth = firebase.auth();
 const db = firebase.firestore();
-const storage = firebase.storage();
+// Esta versión no utiliza Firebase Storage ni gestiona documentos adjuntos.
 
 let modoRegistro = false;
 let facturasGlobales = [];
+let facturasAnualesModelo130 = [];
 let facturaEditandoId = null;
 
+// El acceso se controla mediante Firebase Authentication y las reglas de Firestore.
+// Cada usuario consulta y modifica únicamente los documentos asociados a su UID.
+
 // Escuchador del Estado de la Sesión
-auth.onAuthStateChanged((user) => {
+auth.onAuthStateChanged(async (user) => {
   const authContainer = document.getElementById('authContainer');
   const appContainer = document.getElementById('appContainer');
+  const errorEl = document.getElementById('authError');
 
   if (user) {
+    errorEl.classList.add('hidden');
     authContainer.classList.add('hidden');
     appContainer.classList.remove('hidden');
     document.getElementById('userInfo').innerText = user.email;
@@ -121,16 +126,28 @@ async function cargarDatosTrimestre() {
   const trimestre = document.getElementById('trimestreSelect').value;
 
   try {
+    // Se cargan todas las facturas del año para el cálculo acumulado del Modelo 130.
+    // Las tablas mantienen el filtro del trimestre seleccionado.
+    // Se consultan únicamente las facturas del usuario autenticado.
+    // El año se filtra en JavaScript para admitir tanto valores antiguos numéricos
+    // (2026) como valores de texto ("2026"). La fecha de la factura tiene prioridad.
     const snapshot = await db.collection('facturas')
       .where('userId', '==', user.uid)
-      .where('anio', '==', anio)
-      .where('trimestre', '==', trimestre)
       .get();
 
-    facturasGlobales = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    facturasAnualesModelo130 = snapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      .filter(f => {
+        const anioFactura = f.fecha
+          ? String(f.fecha).slice(0, 4)
+          : String(f.anio ?? '');
+        return anioFactura === String(anio);
+      });
+
+    facturasGlobales = facturasAnualesModelo130.filter(f => f.trimestre === trimestre);
 
     // ORDENAR FACTURAS POR NÚMERO ASCENDENTE
     // El comparador numérico permite ordenar correctamente:
@@ -167,68 +184,74 @@ async function cargarDatosTrimestre() {
 }
 
 // Renderizado de Tablas y Cálculo de Totales
+function escaparHtml(valor) {
+  return String(valor ?? '').replace(/[&<>"']/g, caracter => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[caracter]);
+}
+
+function numeroSeguro(valor) {
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function euros(valor) {
+  return numeroSeguro(valor).toLocaleString('es-ES', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2
+  }) + ' €';
+}
+
+// Renderizado seguro: todos los valores procedentes de Firestore se escapan
+// antes de incorporarse al HTML. Los identificadores se validan además al operar.
 function renderizarTablasYTotales() {
   const tablaEmitidas = document.getElementById('tablaEmitidas');
   const tablaRecibidas = document.getElementById('tablaRecibidas');
-
-  tablaEmitidas.innerHTML = '';
-  tablaRecibidas.innerHTML = '';
+  tablaEmitidas.replaceChildren();
+  tablaRecibidas.replaceChildren();
 
   let vBase = 0, vIva = 0, gBase = 0, gIva = 0, totalIrpf = 0;
+  const emitidas = [];
+  const recibidas = [];
 
   facturasGlobales.forEach(f => {
-    if (f.tipo === 'emitida') {
-      vBase += f.base;
-      vIva += f.cuotaIva;
-      totalIrpf += f.cuotaIrpf;
-
-      tablaEmitidas.innerHTML += `
-        <tr class="border-b text-xs hover:bg-slate-50">
-          <td class="p-2 font-medium">${f.numero}<br><span class="text-slate-400">${f.fecha}</span></td>
-          <td class="p-2">${f.tercero}</td>
-          <td class="p-2">${f.base.toFixed(2)} €</td>
-          <td class="p-2">${f.cuotaIva.toFixed(2)} €</td>
-          <td class="p-2 font-bold">${f.total.toFixed(2)} €</td>
-          <td class="p-2 text-center space-x-2">
-            <button onclick="abrirModalFactura('${f.tipo}', '${f.id}')" class="text-indigo-600 hover:text-indigo-800 font-bold" title="Editar">✏️</button>
-            <button onclick="eliminarFactura('${f.id}')" class="text-red-600 hover:text-red-800 font-bold" title="Eliminar">🗑️</button>
-          </td>
-        </tr>
-      `;
+    const base = numeroSeguro(f.base);
+    const iva = numeroSeguro(f.cuotaIva);
+    const irpf = numeroSeguro(f.cuotaIrpf);
+    const total = numeroSeguro(f.total);
+    const id = escaparHtml(f.id);
+    const tipo = f.tipo === 'emitida' ? 'emitida' : 'recibida';
+    const acciones = `<td class="p-2 text-center whitespace-nowrap">
+      <button type="button" data-action="edit" data-id="${id}" class="text-indigo-600 hover:text-indigo-800 font-bold" title="Editar">✏️</button>
+      <button type="button" data-action="delete" data-id="${id}" class="text-red-600 hover:text-red-800 font-bold ml-2" title="Eliminar">🗑️</button>
+    </td>`;
+    if (tipo === 'emitida') {
+      vBase += base; vIva += iva; totalIrpf += irpf;
+      emitidas.push(`<tr class="border-b text-xs hover:bg-slate-50">
+        <td class="p-2 font-medium">${escaparHtml(f.numero)}<br><span class="text-slate-400">${escaparHtml(f.fecha)}</span></td>
+        <td class="p-2">${escaparHtml(f.tercero)}</td>
+        <td class="p-2">${euros(base)}</td><td class="p-2">${euros(iva)}</td>
+        <td class="p-2 font-bold">${euros(total)}</td>${acciones}</tr>`);
     } else {
-      gBase += f.base;
-      gIva += f.cuotaIva;
-
-      const adjuntoHtml = f.adjuntoUrl
-        ? `<a href="${f.adjuntoUrl}" target="_blank" class="text-indigo-600 underline font-semibold">Ver Doc</a>`
-        : '-';
-
-      tablaRecibidas.innerHTML += `
-        <tr class="border-b text-xs hover:bg-slate-50">
-          <td class="p-2 font-medium">${f.fecha}<br><span class="text-slate-400">${f.numero}</span></td>
-          <td class="p-2">${f.tercero}</td>
-          <td class="p-2">${f.base.toFixed(2)} €</td>
-          <td class="p-2">${f.cuotaIva.toFixed(2)} €</td>
-          <td class="p-2">${adjuntoHtml}</td>
-          <td class="p-2 text-center space-x-2">
-            <button onclick="abrirModalFactura('${f.tipo}', '${f.id}')" class="text-indigo-600 hover:text-indigo-800 font-bold" title="Editar">✏️</button>
-            <button onclick="eliminarFactura('${f.id}')" class="text-red-600 hover:text-red-800 font-bold" title="Eliminar">🗑️</button>
-          </td>
-        </tr>
-      `;
+      gBase += base; gIva += iva;
+      recibidas.push(`<tr class="border-b text-xs hover:bg-slate-50">
+        <td class="p-2 font-medium">${escaparHtml(f.fecha)}<br><span class="text-slate-400">${escaparHtml(f.numero)}</span></td>
+        <td class="p-2">${escaparHtml(f.tercero)}</td>
+        <td class="p-2">${euros(base)}</td><td class="p-2">${euros(iva)}</td>
+        <td class="p-2 font-bold">${euros(total)}</td>${acciones}</tr>`);
     }
   });
+  tablaEmitidas.innerHTML = emitidas.join('');
+  tablaRecibidas.innerHTML = recibidas.join('');
 
-  document.getElementById('totalVentasBase').innerText = `${vBase.toFixed(2)} €`;
-  document.getElementById('totalVentasIva').innerText = `${vIva.toFixed(2)} €`;
-  document.getElementById('totalGastosBase').innerText = `${gBase.toFixed(2)} €`;
-  document.getElementById('totalGastosIva').innerText = `${gIva.toFixed(2)} €`;
-  document.getElementById('totalIrpf').innerText = `${totalIrpf.toFixed(2)} €`;
+  document.getElementById('totalVentasBase').innerText = euros(vBase);
+  document.getElementById('totalVentasIva').innerText = euros(vIva);
+  document.getElementById('totalGastosBase').innerText = euros(gBase);
+  document.getElementById('totalGastosIva').innerText = euros(gIva);
+  document.getElementById('totalIrpf').innerText = euros(totalIrpf);
+  actualizarModelo130();
 
   const res303 = vIva - gIva;
-  const res303El = document.getElementById('resultado303');
-  res303El.innerText = `${res303.toFixed(2)} €`;
-
+  document.getElementById('resultado303').innerText = euros(res303);
   const card = document.getElementById('cardLiquidacion');
   if (res303 >= 0) {
     card.className = "bg-amber-50 p-4 rounded-xl border border-amber-200 shadow-sm";
@@ -237,6 +260,86 @@ function renderizarTablasYTotales() {
     card.className = "bg-emerald-50 p-4 rounded-xl border border-emerald-200 shadow-sm";
     document.getElementById('resultado303Label').innerText = "A compensar / devolver";
   }
+}
+
+// Delegación de eventos: no se interpolan datos en atributos onclick.
+document.addEventListener('click', event => {
+  const button = event.target.closest('button[data-action][data-id]');
+  if (!button) return;
+  const id = button.dataset.id;
+  if (button.dataset.action === 'edit') {
+    const factura = facturasGlobales.find(f => f.id === id);
+    if (factura) abrirModalFactura(factura.tipo, id);
+  } else if (button.dataset.action === 'delete') {
+    eliminarFactura(id);
+  }
+});
+
+// Cálculo orientativo y acumulado del Modelo 130
+function actualizarModelo130() {
+  const anio = document.getElementById('anioSelect').value;
+  const trimestre = document.getElementById('trimestreSelect').value;
+  const regimen = document.getElementById('regimenFiscal').value;
+  const cierresTrimestre = {
+    '1T': anio + '-03-31',
+    '2T': anio + '-06-30',
+    '3T': anio + '-09-30',
+    '4T': anio + '-12-31'
+  };
+  const fechaFin = cierresTrimestre[trimestre];
+
+  // El cálculo acumula desde el 1 de enero hasta el cierre del trimestre.
+  const facturasAcumuladas = facturasAnualesModelo130.filter(f => f.fecha && f.fecha <= fechaFin);
+  let ventas = 0;
+  let gastos = 0;
+  let retenciones = 0;
+
+  facturasAcumuladas.forEach(f => {
+    const base = Number(f.base) || 0;
+    if (f.tipo === 'emitida') {
+      ventas += base;
+      retenciones += Number(f.cuotaIrpf) || 0;
+    } else if (f.tipo === 'recibida') {
+      gastos += base;
+    }
+  });
+
+  const rendimiento = ventas - gastos;
+  const rendimientoPositivo = Math.max(0, rendimiento);
+  const gastoDificilJustificacion = Math.min(rendimientoPositivo * 0.05, 2000);
+  const rendimientoSimplificada = rendimiento - gastoDificilJustificacion;
+  const cuotaNormal = rendimientoPositivo * 0.20;
+  const cuotaSimplificada = Math.max(0, rendimientoSimplificada) * 0.20;
+
+  // Se descuentan las retenciones soportadas. El resultado puede ser negativo.
+  // No se restan pagos fraccionados anteriores porque la aplicación aún no los registra.
+  const resultadoNormal = cuotaNormal - retenciones;
+  const resultadoSimplificada = cuotaSimplificada - retenciones;
+  const euros = valor => (Number(valor) || 0).toLocaleString('es-ES', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }) + ' €';
+
+  document.getElementById('modelo130NormalRendimiento').innerText = euros(rendimiento);
+  document.getElementById('modelo130NormalCuota').innerText = euros(cuotaNormal);
+  document.getElementById('modelo130NormalResultado').innerText = euros(resultadoNormal);
+  document.getElementById('modelo130SimplificadaRendimiento').innerText = euros(rendimientoSimplificada);
+  document.getElementById('modelo130SimplificadaCuota').innerText = euros(cuotaSimplificada);
+  document.getElementById('modelo130SimplificadaResultado').innerText = euros(resultadoSimplificada);
+  document.getElementById('modelo130Ventas').innerText = euros(ventas);
+  document.getElementById('modelo130Gastos').innerText = euros(gastos);
+  document.getElementById('modelo130Retenciones').innerText = euros(retenciones);
+
+  const esSimplificada = regimen === 'simplificada';
+  document.getElementById('modelo130RegimenLabel').innerText = esSimplificada
+    ? 'Estimación directa simplificada · importe estimado'
+    : 'Estimación directa normal · importe estimado';
+  document.getElementById('modelo130Resultado').innerText = euros(
+    esSimplificada ? resultadoSimplificada : resultadoNormal
+  );
+  document.getElementById('modelo130Ajuste').innerText = esSimplificada
+    ? 'Gasto de difícil justificación aplicado: ' + euros(gastoDificilJustificacion) + ' (5%, máximo 2.000 € al año).'
+    : 'No se aplica el gasto del 5% por difícil justificación en estimación directa normal.';
 }
 
 // Modal de Crear / Editar
@@ -279,7 +382,6 @@ function calcularTotalesModal() {
   const base = parseFloat(document.getElementById('facturaBase').value) || 0;
   const ivaPct = parseFloat(document.getElementById('facturaIvaPct').value) || 0;
   const irpfPct = parseFloat(document.getElementById('facturaIrpfPct').value) || 0;
-
   const cuotaIva = base * (ivaPct / 100);
   const cuotaIrpf = base * (irpfPct / 100);
   const total = base + cuotaIva - cuotaIrpf;
@@ -299,9 +401,26 @@ async function guardarFactura(e) {
 
   const tipo = document.getElementById('facturaTipo').value;
   const fecha = document.getElementById('facturaFecha').value;
+  if (!['emitida', 'recibida'].includes(tipo)) {
+    alert('Tipo de factura no válido.');
+    btnGuardar.disabled = false;
+    btnGuardar.innerText = 'Guardar';
+    return;
+  }
   const base = parseFloat(document.getElementById('facturaBase').value) || 0;
   const ivaPct = parseFloat(document.getElementById('facturaIvaPct').value) || 0;
   const irpfPct = parseFloat(document.getElementById('facturaIrpfPct').value) || 0;
+  const numero = document.getElementById('facturaNumero').value.trim();
+  const tercero = document.getElementById('facturaTercero').value.trim();
+  const nif = document.getElementById('facturaNif').value.trim();
+  if (!fecha || Number.isNaN(Date.parse(fecha)) || !numero || !tercero || !nif ||
+      !Number.isFinite(base) || base < 0 || !Number.isFinite(ivaPct) ||
+      !Number.isFinite(irpfPct) || ivaPct < 0 || ivaPct > 100 || irpfPct < 0 || irpfPct > 100) {
+    alert('Revisa los datos: fecha, número, tercero, NIF, base e impuestos deben ser válidos.');
+    btnGuardar.disabled = false;
+    btnGuardar.innerText = 'Guardar';
+    return;
+  }
 
   const cuotaIva = base * (ivaPct / 100);
   const cuotaIrpf = base * (irpfPct / 100);
@@ -323,9 +442,9 @@ async function guardarFactura(e) {
       fecha,
       anio,
       trimestre,
-      numero: document.getElementById('facturaNumero').value,
-      tercero: document.getElementById('facturaTercero').value,
-      nif: document.getElementById('facturaNif').value,
+      numero,
+      tercero,
+      nif,
       base,
       ivaPct,
       cuotaIva,
@@ -335,15 +454,9 @@ async function guardarFactura(e) {
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    const fileInput = document.getElementById('facturaAdjunto');
-    if (fileInput.files.length > 0) {
-      const file = fileInput.files[0];
-      const storageRef = storage.ref(`adjuntos/${user.uid}/${anio}/${Date.now()}_${file.name}`);
-      await storageRef.put(file);
-      datosFactura.adjuntoUrl = await storageRef.getDownloadURL();
-    }
-
     if (facturaEditandoId) {
+      const facturaOriginal = facturasAnualesModelo130.find(f => f.id === facturaEditandoId && f.userId === user.uid);
+      if (!facturaOriginal) throw new Error('No se puede editar una factura que no pertenece a tu cuenta o no está cargada.');
       await db.collection('facturas').doc(facturaEditandoId).update(datosFactura);
     } else {
       datosFactura.createdAt = firebase.firestore.FieldValue.serverTimestamp();
@@ -368,6 +481,9 @@ async function guardarFactura(e) {
 
 // Eliminar Factura
 async function eliminarFactura(id) {
+  const user = auth.currentUser;
+  const factura = facturasAnualesModelo130.find(f => f.id === id && user && f.userId === user.uid);
+  if (!factura) { alert('No se puede eliminar una factura que no pertenece a tu cuenta o no está cargada.'); return; }
   if (!confirm("¿Estás seguro de que deseas eliminar esta factura?")) return;
 
   try {
@@ -380,26 +496,35 @@ async function eliminarFactura(id) {
 }
 
 // Exportar CSV
+function protegerCeldaCSV(valor) {
+  let texto = String(valor ?? '');
+  // Neutraliza fórmulas de Excel/LibreOffice introducidas en campos de texto.
+  if (/^[\s\u0000-\u001f]*[=+@-]/.test(texto)) texto = "'" + texto;
+  return '"' + texto.replace(/"/g, '""') + '"';
+}
+
 function exportarExcelGestoria() {
   if (facturasGlobales.length === 0) {
     alert("No hay facturas registradas en el período seleccionado.");
     return;
   }
-
   const anio = document.getElementById('anioSelect').value;
   const trimestre = document.getElementById('trimestreSelect').value;
-
-  let csvContent = "data:text/csv;charset=utf-8,TIPO;FECHA;NUMERO;NIF;TERCERO;BASE;% IVA;CUOTA IVA;% IRPF;RETENCION IRPF;TOTAL\n";
-
-  facturasGlobales.forEach(f => {
-    csvContent += `${f.tipo.toUpperCase()};${f.fecha};${f.numero};${f.nif};"${f.tercero}";${f.base};${f.ivaPct}%;${f.cuotaIva};${f.irpfPct}%;${f.cuotaIrpf};${f.total}\n`;
-  });
-
-  const encodedUri = encodeURI(csvContent);
-  const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", `Facturacion_Gestoria_${anio}_${trimestre}.csv`);
+  const filas = [["TIPO","FECHA","NUMERO","NIF","TERCERO","BASE","% IVA","CUOTA IVA","% IRPF","RETENCION IRPF","TOTAL"]];
+  facturasGlobales.forEach(f => filas.push([
+    String(f.tipo || '').toUpperCase(), f.fecha, f.numero, f.nif, f.tercero,
+    numeroSeguro(f.base).toFixed(2), numeroSeguro(f.ivaPct).toFixed(2),
+    numeroSeguro(f.cuotaIva).toFixed(2), numeroSeguro(f.irpfPct).toFixed(2),
+    numeroSeguro(f.cuotaIrpf).toFixed(2), numeroSeguro(f.total).toFixed(2)
+  ]));
+  const csv = '\uFEFF' + filas.map(fila => fila.map(protegerCeldaCSV).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Facturacion_Gestoria_${anio}_${trimestre}.csv`;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
+  URL.revokeObjectURL(url);
 }
