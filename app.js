@@ -1,3 +1,4 @@
+
 // 1. Configuración de Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBlPqHe_RhlesKTNWRmzHaBdlq_8nMQjVI",
@@ -118,7 +119,7 @@ async function cargarDatosTrimestre() {
 
   const anio = document.getElementById('anioSelect').value;
   const trimestre = document.getElementById('trimestreSelect').value;
-  
+
   try {
     const snapshot = await db.collection('facturas')
       .where('userId', '==', user.uid)
@@ -126,8 +127,40 @@ async function cargarDatosTrimestre() {
       .where('trimestre', '==', trimestre)
       .get();
 
-    facturasGlobales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    facturasGlobales = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    // ORDENAR FACTURAS POR NÚMERO ASCENDENTE
+    // El comparador numérico permite ordenar correctamente:
+    // 1, 2, 3... 9, 10, 11, 12...
+    const comparadorNumerico = new Intl.Collator('es', {
+      numeric: true,
+      sensitivity: 'base'
+    });
+
+    facturasGlobales.sort((a, b) => {
+      const numeroA = String(a.numero ?? '').trim();
+      const numeroB = String(b.numero ?? '').trim();
+
+      const ordenNumero = comparadorNumerico.compare(
+        numeroA,
+        numeroB
+      );
+
+      if (ordenNumero !== 0) {
+        return ordenNumero;
+      }
+
+      // Si coinciden los números, ordenar por fecha
+      return String(a.fecha ?? '').localeCompare(
+        String(b.fecha ?? '')
+      );
+    });
+
     renderizarTablasYTotales();
+
   } catch (error) {
     console.error("Error al cargar facturas:", error);
   }
@@ -137,7 +170,7 @@ async function cargarDatosTrimestre() {
 function renderizarTablasYTotales() {
   const tablaEmitidas = document.getElementById('tablaEmitidas');
   const tablaRecibidas = document.getElementById('tablaRecibidas');
-  
+
   tablaEmitidas.innerHTML = '';
   tablaRecibidas.innerHTML = '';
 
@@ -166,8 +199,8 @@ function renderizarTablasYTotales() {
       gBase += f.base;
       gIva += f.cuotaIva;
 
-      const adjuntoHtml = f.adjuntoUrl 
-        ? `<a href="${f.adjuntoUrl}" target="_blank" class="text-indigo-600 underline font-semibold">Ver Doc</a>` 
+      const adjuntoHtml = f.adjuntoUrl
+        ? `<a href="${f.adjuntoUrl}" target="_blank" class="text-indigo-600 underline font-semibold">Ver Doc</a>`
         : '-';
 
       tablaRecibidas.innerHTML += `
@@ -195,7 +228,7 @@ function renderizarTablasYTotales() {
   const res303 = vIva - gIva;
   const res303El = document.getElementById('resultado303');
   res303El.innerText = `${res303.toFixed(2)} €`;
-  
+
   const card = document.getElementById('cardLiquidacion');
   if (res303 >= 0) {
     card.className = "bg-amber-50 p-4 rounded-xl border border-amber-200 shadow-sm";
@@ -210,7 +243,7 @@ function renderizarTablasYTotales() {
 function abrirModalFactura(tipo, id = null) {
   const form = document.getElementById('formFactura');
   form.reset();
-  
+
   facturaEditandoId = id;
   document.getElementById('facturaTipo').value = tipo;
 
@@ -228,8 +261,8 @@ function abrirModalFactura(tipo, id = null) {
     document.getElementById('facturaIrpfPct').value = factura.irpfPct;
     document.getElementById('facturaTotal').value = factura.total.toFixed(2);
   } else {
-    document.getElementById('modalTitle').innerText = tipo === 'emitida' 
-      ? 'Registrar Venta (Factura Emitida)' 
+    document.getElementById('modalTitle').innerText = tipo === 'emitida'
+      ? 'Registrar Venta (Factura Emitida)'
       : 'Registrar Gasto (Factura Recibida)';
     document.getElementById('facturaFecha').value = new Date().toISOString().split('T')[0];
   }
@@ -277,7 +310,7 @@ async function guardarFactura(e) {
   const fechaObj = new Date(fecha);
   const anio = fechaObj.getFullYear().toString();
   const mes = fechaObj.getMonth() + 1;
-  
+
   let trimestre = '1T';
   if (mes >= 4 && mes <= 6) trimestre = '2T';
   if (mes >= 7 && mes <= 9) trimestre = '3T';
