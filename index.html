@@ -99,9 +99,9 @@
           <p class="text-xs text-rose-600 font-semibold" id="totalGastosIva">0.00 € IVA</p>
         </div>
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p class="text-xs text-slate-500 font-medium">IRPF Retenido</p>
+          <p class="text-xs text-slate-500 font-medium">IRPF retenido por clientes</p>
           <p class="text-lg font-bold text-slate-800" id="totalIrpf">0.00 €</p>
-          <p class="text-xs text-slate-400 font-medium">Modelo 130 / Retenciones</p>
+          <p class="text-xs text-slate-400 font-medium">Retenciones en facturas emitidas</p>
         </div>
         <div id="cardLiquidacion" class="bg-amber-50 p-4 rounded-xl border border-amber-200 shadow-sm">
           <p class="text-xs text-amber-800 font-semibold">Liquidación IVA (Mod. 303)</p>
@@ -109,6 +109,58 @@
           <p class="text-xs text-amber-700 font-medium" id="resultado303Label">A pagar a Hacienda</p>
         </div>
       </div>
+
+      <!-- Cálculo orientativo del Modelo 130 -->
+      <section class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <div class="flex flex-wrap justify-between items-start gap-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-800">Modelo 130 · Comparativa de estimación directa</h2>
+            <p class="text-xs text-slate-500 mt-1">Cálculo acumulado desde enero hasta el final del trimestre seleccionado</p>
+          </div>
+          <div class="min-w-56">
+            <label for="regimenFiscal" class="block text-xs font-semibold text-slate-600 mb-1">Mi régimen fiscal</label>
+            <select id="regimenFiscal" onchange="actualizarModelo130()" class="w-full border rounded-lg p-2 text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="simplificada" selected>Estimación directa simplificada</option>
+              <option value="normal">Estimación directa normal</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-slate-200 p-4">
+            <h3 class="text-sm font-bold text-slate-700">Estimación directa normal</h3>
+            <p class="text-xs text-slate-500 mt-1">Sin el gasto adicional del 5% por difícil justificación</p>
+            <p class="text-xs text-slate-500 mt-3">Rendimiento neto acumulado</p>
+            <p class="text-lg font-bold text-slate-800" id="modelo130NormalRendimiento">0,00 €</p>
+            <p class="text-xs text-slate-500 mt-2">20% del rendimiento</p>
+            <p class="text-base font-semibold text-slate-800" id="modelo130NormalCuota">0,00 €</p>
+            <p class="text-xs text-slate-500 mt-2">Estimación tras retenciones</p>
+            <p class="text-sm font-bold text-indigo-700" id="modelo130NormalResultado">0,00 €</p>
+          </div>
+          <div class="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
+            <h3 class="text-sm font-bold text-indigo-800">Estimación directa simplificada</h3>
+            <p class="text-xs text-slate-500 mt-1">Aplica el 5% de difícil justificación, con límite anual de 2.000 €</p>
+            <p class="text-xs text-slate-500 mt-3">Rendimiento tras el ajuste del 5%</p>
+            <p class="text-lg font-bold text-slate-800" id="modelo130SimplificadaRendimiento">0,00 €</p>
+            <p class="text-xs text-slate-500 mt-2">20% del rendimiento ajustado</p>
+            <p class="text-base font-semibold text-slate-800" id="modelo130SimplificadaCuota">0,00 €</p>
+            <p class="text-xs text-slate-500 mt-2">Estimación tras retenciones</p>
+            <p class="text-sm font-bold text-indigo-700" id="modelo130SimplificadaResultado">0,00 €</p>
+          </div>
+        </div>
+        <div class="rounded-lg bg-slate-50 border border-slate-200 p-4">
+          <h3 class="text-sm font-bold text-slate-700">Resultado según el régimen seleccionado</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+            <div><p class="text-xs text-slate-500">Ventas acumuladas (base)</p><p class="font-semibold text-slate-800" id="modelo130Ventas">0,00 €</p></div>
+            <div><p class="text-xs text-slate-500">Gastos acumulados (base)</p><p class="font-semibold text-slate-800" id="modelo130Gastos">0,00 €</p></div>
+            <div><p class="text-xs text-slate-500">Retenciones en facturas emitidas</p><p class="font-semibold text-slate-800" id="modelo130Retenciones">0,00 €</p></div>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2">
+            <div><p class="text-xs text-slate-500" id="modelo130RegimenLabel">Estimación directa simplificada</p><p class="text-2xl font-bold text-indigo-700" id="modelo130Resultado">0,00 €</p></div>
+            <p class="text-xs text-slate-500 max-w-xl" id="modelo130Ajuste">Gasto de difícil justificación aplicado: 0,00 €</p>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500 leading-relaxed">Cálculo orientativo: utiliza las bases de ventas y gastos registradas desde enero hasta el cierre del trimestre. El resultado descuenta las retenciones de IRPF de las facturas emitidas, pero todavía no resta los pagos fraccionados de trimestres anteriores ni contempla otros ajustes fiscales. No sustituye al cálculo definitivo de la AEAT.</p>
+      </section>
 
       <!-- Tablas de Datos -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
