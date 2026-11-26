@@ -24,6 +24,7 @@ const storage = firebase.storage();
 
 let modoRegistro = false;
 let facturasGlobales = [];
+let facturasAnualesModelo130 = [];
 let facturaEditandoId = null;
 
 // Escuchador del Estado de la Sesión
@@ -121,16 +122,19 @@ async function cargarDatosTrimestre() {
   const trimestre = document.getElementById('trimestreSelect').value;
 
   try {
+    // Se cargan todas las facturas del año para el cálculo acumulado del Modelo 130.
+    // Las tablas mantienen el filtro del trimestre seleccionado.
     const snapshot = await db.collection('facturas')
       .where('userId', '==', user.uid)
       .where('anio', '==', anio)
-      .where('trimestre', '==', trimestre)
       .get();
 
-    facturasGlobales = snapshot.docs.map(doc => ({
+    facturasAnualesModelo130 = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
+
+    facturasGlobales = facturasAnualesModelo130.filter(f => f.trimestre === trimestre);
 
     // ORDENAR FACTURAS POR NÚMERO ASCENDENTE
     // El comparador numérico permite ordenar correctamente:
@@ -225,6 +229,8 @@ function renderizarTablasYTotales() {
   document.getElementById('totalGastosIva').innerText = `${gIva.toFixed(2)} €`;
   document.getElementById('totalIrpf').innerText = `${totalIrpf.toFixed(2)} €`;
 
+  actualizarModelo130();
+
   const res303 = vIva - gIva;
   const res303El = document.getElementById('resultado303');
   res303El.innerText = `${res303.toFixed(2)} €`;
@@ -237,6 +243,73 @@ function renderizarTablasYTotales() {
     card.className = "bg-emerald-50 p-4 rounded-xl border border-emerald-200 shadow-sm";
     document.getElementById('resultado303Label').innerText = "A compensar / devolver";
   }
+}
+
+// Cálculo orientativo y acumulado del Modelo 130
+function actualizarModelo130() {
+  const anio = document.getElementById('anioSelect').value;
+  const trimestre = document.getElementById('trimestreSelect').value;
+  const regimen = document.getElementById('regimenFiscal').value;
+  const cierresTrimestre = {
+    '1T': anio + '-03-31',
+    '2T': anio + '-06-30',
+    '3T': anio + '-09-30',
+    '4T': anio + '-12-31'
+  };
+  const fechaFin = cierresTrimestre[trimestre];
+
+  // El cálculo acumula desde el 1 de enero hasta el cierre del trimestre.
+  const facturasAcumuladas = facturasAnualesModelo130.filter(f => f.fecha && f.fecha <= fechaFin);
+  let ventas = 0;
+  let gastos = 0;
+  let retenciones = 0;
+
+  facturasAcumuladas.forEach(f => {
+    const base = Number(f.base) || 0;
+    if (f.tipo === 'emitida') {
+      ventas += base;
+      retenciones += Number(f.cuotaIrpf) || 0;
+    } else if (f.tipo === 'recibida') {
+      gastos += base;
+    }
+  });
+
+  const rendimiento = ventas - gastos;
+  const rendimientoPositivo = Math.max(0, rendimiento);
+  const gastoDificilJustificacion = Math.min(rendimientoPositivo * 0.05, 2000);
+  const rendimientoSimplificada = rendimiento - gastoDificilJustificacion;
+  const cuotaNormal = rendimientoPositivo * 0.20;
+  const cuotaSimplificada = Math.max(0, rendimientoSimplificada) * 0.20;
+
+  // Se descuentan retenciones soportadas. No se restan pagos fraccionados anteriores,
+  // ya que la aplicación todavía no dispone de ese dato.
+  const resultadoNormal = Math.max(0, cuotaNormal - retenciones);
+  const resultadoSimplificada = Math.max(0, cuotaSimplificada - retenciones);
+  const euros = valor => (Number(valor) || 0).toLocaleString('es-ES', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }) + ' €';
+
+  document.getElementById('modelo130NormalRendimiento').innerText = euros(rendimiento);
+  document.getElementById('modelo130NormalCuota').innerText = euros(cuotaNormal);
+  document.getElementById('modelo130NormalResultado').innerText = euros(resultadoNormal);
+  document.getElementById('modelo130SimplificadaRendimiento').innerText = euros(rendimientoSimplificada);
+  document.getElementById('modelo130SimplificadaCuota').innerText = euros(cuotaSimplificada);
+  document.getElementById('modelo130SimplificadaResultado').innerText = euros(resultadoSimplificada);
+  document.getElementById('modelo130Ventas').innerText = euros(ventas);
+  document.getElementById('modelo130Gastos').innerText = euros(gastos);
+  document.getElementById('modelo130Retenciones').innerText = euros(retenciones);
+
+  const esSimplificada = regimen === 'simplificada';
+  document.getElementById('modelo130RegimenLabel').innerText = esSimplificada
+    ? 'Estimación directa simplificada · importe estimado'
+    : 'Estimación directa normal · importe estimado';
+  document.getElementById('modelo130Resultado').innerText = euros(
+    esSimplificada ? resultadoSimplificada : resultadoNormal
+  );
+  document.getElementById('modelo130Ajuste').innerText = esSimplificada
+    ? 'Gasto de difícil justificación aplicado: ' + euros(gastoDificilJustificacion) + ' (5%, máximo 2.000 € al año).'
+    : 'No se aplica el gasto del 5% por difícil justificación en estimación directa normal.';
 }
 
 // Modal de Crear / Editar
