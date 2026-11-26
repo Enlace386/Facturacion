@@ -281,10 +281,10 @@ function actualizarModelo130() {
   const cuotaNormal = rendimientoPositivo * 0.20;
   const cuotaSimplificada = Math.max(0, rendimientoSimplificada) * 0.20;
 
-  // Se descuentan retenciones soportadas. No se restan pagos fraccionados anteriores,
-  // ya que la aplicación todavía no dispone de ese dato.
-  const resultadoNormal = Math.max(0, cuotaNormal - retenciones);
-  const resultadoSimplificada = Math.max(0, cuotaSimplificada - retenciones);
+  // Se descuentan las retenciones soportadas. El resultado puede ser negativo.
+  // No se restan pagos fraccionados anteriores porque la aplicación aún no los registra.
+  const resultadoNormal = cuotaNormal - retenciones;
+  const resultadoSimplificada = cuotaSimplificada - retenciones;
   const euros = valor => (Number(valor) || 0).toLocaleString('es-ES', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
